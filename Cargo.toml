@@ -13,6 +13,10 @@ readme = "README.md"
 
 [features]
 static = ["libftd2xx/static"]
+# features only for tests: select ftdi-rs or libftd2xx-rs
+ftd2-lib = []
+ftdi-lib = []
+default = []
 
 [dependencies]
 nb = "^1"
@@ -23,6 +27,7 @@ ftdi = "^0.1"
 
 [dev-dependencies]
 version-sync = "~0.9.2"
+eeprom24x = "0.3.0"
 
 [badges]
 maintenance = { status = "experimental" }
