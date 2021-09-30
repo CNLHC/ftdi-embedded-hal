@@ -75,7 +75,10 @@
 //! [udev rules]: https://github.com/ftdi-rs/libftd2xx-rs/#udev-rules
 //! [setup executable]: https://www.ftdichip.com/Drivers/CDM/CDM21228_Setup.zip
 #![doc(html_root_url = "https://docs.rs/ftdi-embedded-hal/0.9.1")]
-#![forbid(missing_docs)]
+
+// FIXME
+//#![forbid(missing_docs)]
+
 #![forbid(unsafe_code)]
 
 pub use embedded_hal;
