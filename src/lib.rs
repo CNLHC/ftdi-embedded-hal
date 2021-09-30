@@ -85,11 +85,14 @@ mod delay;
 mod gpio;
 mod i2c;
 mod spi;
+mod error;
 
 pub use delay::Delay;
 pub use gpio::OutputPin;
-pub use i2c::{I2c, I2cError};
+pub use i2c::I2c;
 pub use spi::Spi;
+pub use error::Result;
+use crate::error::FtHalError;
 
 use ftdi_mpsse::{MpsseSettings, MpsseCmdExecutor};
 use std::{cell::RefCell, sync::Mutex};
@@ -180,6 +183,7 @@ pub struct FtHal<Device: MpsseCmdExecutor, INITIALIZED> {
 }
 
 impl<Device: MpsseCmdExecutor> FtHal<Device, Uninitialized>
+    where FtHalError: From<<Device as MpsseCmdExecutor>::Error>,
 {
     /// Initialize the FTDI MPSSE with sane defaults.
     ///
@@ -256,6 +260,7 @@ impl<Device: MpsseCmdExecutor> FtHal<Device, Uninitialized>
 }
 
 impl<Device: MpsseCmdExecutor> From<Device> for FtHal<Device, Uninitialized>
+    where FtHalError: From<<Device as MpsseCmdExecutor>::Error>,
 {
     /// Create a new FT232H structure from a specific FT232H device.
     ///
@@ -293,6 +298,7 @@ impl<Device: MpsseCmdExecutor> From<Device> for FtHal<Device, Uninitialized>
 }
 
 impl<Device: MpsseCmdExecutor> FtHal<Device, Initialized>
+    where FtHalError: From<<Device as MpsseCmdExecutor>::Error>,
 {
 
     /// Aquire the SPI peripheral for the FT232H.
@@ -315,7 +321,7 @@ impl<Device: MpsseCmdExecutor> FtHal<Device, Initialized>
     /// let mut spi = ftdi.spi()?;
     /// # Ok::<(), std::boxed::Box<dyn std::error::Error>>(())
     /// ```
-    pub fn spi(&self) -> Result<Spi<Device>, TimeoutError> {
+    pub fn spi(&self) -> Result<Spi<Device>> {
         Spi::new(&self.mtx)
     }
 
@@ -342,7 +348,7 @@ impl<Device: MpsseCmdExecutor> FtHal<Device, Initialized>
     /// let mut i2c = ftdi.i2c()?;
     /// # Ok::<(), std::boxed::Box<dyn std::error::Error>>(())
     /// ```
-    pub fn i2c(&self) -> Result<I2c<Device>, TimeoutError> {
+    pub fn i2c(&self) -> Result<I2c<Device>> {
         I2c::new(&self.mtx)
     }
 

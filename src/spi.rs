@@ -2,6 +2,8 @@ use crate::{FtInner, PinUse};
 use embedded_hal::spi::Polarity;
 use std::{cell::RefCell, sync::Mutex};
 use ftdi_mpsse::{ClockData, ClockDataOut, MpsseCmdBuilder, MpsseCmdExecutor};
+use crate::error::FtHalError;
+use crate::error::Result;
 
 /// FTDI SPI interface.
 ///
@@ -10,6 +12,7 @@ use ftdi_mpsse::{ClockData, ClockDataOut, MpsseCmdBuilder, MpsseCmdExecutor};
 /// [`FtHal::spi`]: crate::FtHal::spi
 #[derive(Debug)]
 pub struct Spi<'a, Device: MpsseCmdExecutor>
+    where FtHalError: From<<Device as MpsseCmdExecutor>::Error>,
 {
     /// Parent FTDI device.
     mtx: &'a Mutex<RefCell<FtInner<Device>>>,
@@ -24,8 +27,9 @@ pub struct Spi<'a, Device: MpsseCmdExecutor>
 }
 
 impl<'a, Device: MpsseCmdExecutor> Spi<'a, Device>
+    where FtHalError: From<<Device as MpsseCmdExecutor>::Error>,
 {
-    pub(crate) fn new(mtx: &Mutex<RefCell<FtInner<Device>>>) -> Result<Spi<Device>, TimeoutError> {
+    pub(crate) fn new(mtx: &Mutex<RefCell<FtInner<Device>>>) -> Result<Spi<Device>> {
         let lock = mtx.lock().expect("Failed to aquire FTDI mutex");
         let mut inner = lock.borrow_mut();
         inner.allocate_pin(0, PinUse::Spi);
@@ -80,25 +84,30 @@ impl<'a, Device: MpsseCmdExecutor> Spi<'a, Device>
 }
 
 impl<'a, Device: MpsseCmdExecutor> embedded_hal::blocking::spi::Write<u8> for Spi<'a, Device>
+    where FtHalError: From<<Device as MpsseCmdExecutor>::Error>,
 {
-    type Error = TimeoutError;
+    type Error = FtHalError;
 
-    fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
+    fn write(&mut self, words: &[u8]) -> Result<()> {
         let cmd: MpsseCmdBuilder = MpsseCmdBuilder::new()
             .clock_data_out(self.clk_out, words)
             .send_immediate();
 
         let lock = self.mtx.lock().expect("Failed to aquire FTDI mutex");
         let mut inner = lock.borrow_mut();
-        inner.ft.send(cmd.as_slice())
+
+        inner.ft.send(cmd.as_slice())?;
+
+        Ok(())
     }
 }
 
 impl<'a, Device: MpsseCmdExecutor> embedded_hal::blocking::spi::Transfer<u8> for Spi<'a, Device>
+    where FtHalError: From<<Device as MpsseCmdExecutor>::Error>,
 {
-    type Error = TimeoutError;
+    type Error = FtHalError;
 
-    fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<&'w [u8], Self::Error> {
+    fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<&'w [u8]> {
         let cmd: MpsseCmdBuilder = MpsseCmdBuilder::new()
             .clock_data(self.clk, words)
             .send_immediate();
@@ -113,10 +122,11 @@ impl<'a, Device: MpsseCmdExecutor> embedded_hal::blocking::spi::Transfer<u8> for
 }
 
 impl<'a, Device: MpsseCmdExecutor> embedded_hal::spi::FullDuplex<u8> for Spi<'a, Device>
+    where FtHalError: From<<Device as MpsseCmdExecutor>::Error>,
 {
-    type Error = TimeoutError;
+    type Error = FtHalError;
 
-    fn read(&mut self) -> nb::Result<u8, Self::Error> {
+    fn read(&mut self) -> nb::Result<u8, FtHalError> {
         let mut buf: [u8; 1] = [0];
         let cmd: MpsseCmdBuilder = MpsseCmdBuilder::new()
             .clock_data(self.clk, &buf)
@@ -124,20 +134,24 @@ impl<'a, Device: MpsseCmdExecutor> embedded_hal::spi::FullDuplex<u8> for Spi<'a,
 
         let lock = self.mtx.lock().expect("Failed to aquire FTDI mutex");
         let mut inner = lock.borrow_mut();
-        inner.ft.write_all(cmd.as_slice())?;
-        inner.ft.read_all(&mut buf)?;
 
-        Ok(buf[0])
+        match inner.ft.xfer(cmd.as_slice(), &mut buf) {
+            Ok(()) => Ok(buf[0]),
+            Err(e) => Err(nb::Error::Other(FtHalError::from(e))),
+        }
     }
 
-    fn send(&mut self, byte: u8) -> nb::Result<(), Self::Error> {
+    fn send(&mut self, byte: u8) -> nb::Result<(), FtHalError> {
         let cmd: MpsseCmdBuilder = MpsseCmdBuilder::new()
             .clock_data_out(self.clk_out, &[byte])
             .send_immediate();
 
         let lock = self.mtx.lock().expect("Failed to aquire FTDI mutex");
         let mut inner = lock.borrow_mut();
-        inner.ft.write_all(cmd.as_slice())?;
-        Ok(())
+
+        match inner.ft.send(cmd.as_slice()) {
+            Ok(()) => Ok(()),
+            Err(e) => Err(nb::Error::Other(FtHalError::from(e))),
+        }
     }
 }

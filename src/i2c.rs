@@ -1,6 +1,9 @@
 use crate::{FtInner, PinUse};
 use ftdi_mpsse::{ClockBitsIn, ClockBitsOut, MpsseCmdBuilder, MpsseCmdExecutor};
-use std::{cell::RefCell, error::Error, fmt, sync::Mutex};
+use std::{cell::RefCell, sync::Mutex};
+use crate::error::FtHalError;
+use crate::error::ErrorKind::I2cNoAck;
+use crate::error::Result;
 
 /// SCL bitmask
 const SCL: u8 = 1 << 0;
@@ -29,8 +32,9 @@ pub struct I2c<'a, Device: MpsseCmdExecutor> {
 }
 
 impl<'a, Device: MpsseCmdExecutor> I2c<'a, Device>
+    where FtHalError: From<<Device as MpsseCmdExecutor>::Error>,
 {
-    pub(crate) fn new(mtx: &Mutex<RefCell<FtInner<Device>>>) -> Result<I2c<Device>, TimeoutError> {
+    pub(crate) fn new(mtx: &Mutex<RefCell<FtInner<Device>>>) -> Result<I2c<Device>> {
         let lock = mtx.lock().expect("Failed to aquire FTDI mutex");
         let mut inner = lock.borrow_mut();
         inner.allocate_pin(0, PinUse::I2c);
@@ -106,7 +110,7 @@ impl<'a, Device: MpsseCmdExecutor> I2c<'a, Device>
         self.fast = fast
     }
 
-    fn read_fast(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), I2cError> {
+    fn read_fast(&mut self, address: u8, buffer: &mut [u8]) -> Result<()> {
         assert!(!buffer.is_empty(), "buffer must be a non-empty slice");
 
         let lock = self.mtx.lock().expect("Failed to aquire FTDI mutex");
@@ -171,13 +175,13 @@ impl<'a, Device: MpsseCmdExecutor> I2c<'a, Device>
         inner.ft.recv(buffer)?;
 
         if (ack_buf[0] & 0b1) != 0x00 {
-            return Err(I2cError::Nak);
+            return Err(FtHalError::HAL(I2cNoAck));
         }
 
         Ok(())
     }
 
-    fn read_slow(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), I2cError> {
+    fn read_slow(&mut self, address: u8, buffer: &mut [u8]) -> Result<()> {
         assert!(!buffer.is_empty(), "buffer must be a non-empty slice");
 
         let lock = self.mtx.lock().expect("Failed to aquire FTDI mutex");
@@ -206,7 +210,7 @@ impl<'a, Device: MpsseCmdExecutor> I2c<'a, Device>
         let mut ack_buf: [u8; 1] = [0; 1];
         inner.ft.recv(&mut ack_buf)?;
         if (ack_buf[0] & 0b1) != 0x00 {
-            return Err(I2cError::Nak);
+            return Err(FtHalError::HAL(I2cNoAck));
         }
 
         let mut mpsse_cmd: MpsseCmdBuilder = MpsseCmdBuilder::new();
@@ -251,7 +255,7 @@ impl<'a, Device: MpsseCmdExecutor> I2c<'a, Device>
         Ok(())
     }
 
-    fn write_fast(&mut self, addr: u8, bytes: &[u8]) -> Result<(), I2cError> {
+    fn write_fast(&mut self, addr: u8, bytes: &[u8]) -> Result<()> {
         assert!(!bytes.is_empty(), "bytes must be a non-empty slice");
 
         let lock = self.mtx.lock().expect("Failed to aquire FTDI mutex");
@@ -306,13 +310,13 @@ impl<'a, Device: MpsseCmdExecutor> I2c<'a, Device>
         let mut ack_buf: Vec<u8> = vec![0; 1 + bytes.len()];
         inner.ft.recv(ack_buf.as_mut_slice())?;
         if ack_buf.iter().any(|&ack| (ack & 0b1) != 0x00) {
-            Err(I2cError::Nak)
+            Err(FtHalError::HAL(I2cNoAck))
         } else {
             Ok(())
         }
     }
 
-    fn write_slow(&mut self, addr: u8, bytes: &[u8]) -> Result<(), I2cError> {
+    fn write_slow(&mut self, addr: u8, bytes: &[u8]) -> Result<()> {
         assert!(!bytes.is_empty(), "bytes must be a non-empty slice");
 
         let lock = self.mtx.lock().expect("Failed to aquire FTDI mutex");
@@ -341,7 +345,7 @@ impl<'a, Device: MpsseCmdExecutor> I2c<'a, Device>
         let mut ack_buf: [u8; 1] = [0; 1];
         inner.ft.recv(&mut ack_buf)?;
         if (ack_buf[0] & 0b1) != 0x00 {
-            return Err(I2cError::Nak);
+            return Err(FtHalError::HAL(I2cNoAck));
         }
 
         for (idx, byte) in bytes.iter().enumerate() {
@@ -378,7 +382,7 @@ impl<'a, Device: MpsseCmdExecutor> I2c<'a, Device>
             let mut ack_buf: [u8; 1] = [0; 1];
             inner.ft.recv(&mut ack_buf)?;
             if (ack_buf[0] & 0b1) != 0x00 {
-                return Err(I2cError::Nak);
+                return Err(FtHalError::HAL(I2cNoAck));
             }
         }
 
@@ -390,7 +394,7 @@ impl<'a, Device: MpsseCmdExecutor> I2c<'a, Device>
         address: u8,
         bytes: &[u8],
         buffer: &mut [u8],
-    ) -> Result<(), I2cError> {
+    ) -> Result<()> {
         assert!(!bytes.is_empty(), "bytes must be a non-empty slice");
         assert!(!buffer.is_empty(), "buffer must be a non-empty slice");
 
@@ -487,7 +491,7 @@ impl<'a, Device: MpsseCmdExecutor> I2c<'a, Device>
         inner.ft.recv(buffer)?;
 
         if ack_buf.iter().any(|&ack| (ack & 0b1) != 0x00) {
-            Err(I2cError::Nak)
+            Err(FtHalError::HAL(I2cNoAck))
         } else {
             Ok(())
         }
@@ -498,7 +502,7 @@ impl<'a, Device: MpsseCmdExecutor> I2c<'a, Device>
         address: u8,
         bytes: &[u8],
         buffer: &mut [u8],
-    ) -> Result<(), I2cError> {
+    ) -> Result<()> {
         assert!(!bytes.is_empty(), "bytes must be a non-empty slice");
         assert!(!buffer.is_empty(), "buffer must be a non-empty slice");
 
@@ -530,7 +534,7 @@ impl<'a, Device: MpsseCmdExecutor> I2c<'a, Device>
         let mut ack_buf: [u8; 1] = [0; 1];
         inner.ft.recv(&mut ack_buf)?;
         if (ack_buf[0] & 0b1) != 0x00 {
-            return Err(I2cError::Nak);
+            return Err(FtHalError::HAL(I2cNoAck));
         }
 
         for byte in bytes {
@@ -547,7 +551,7 @@ impl<'a, Device: MpsseCmdExecutor> I2c<'a, Device>
             let mut ack_buf: [u8; 1] = [0; 1];
             inner.ft.recv(&mut ack_buf)?;
             if (ack_buf[0] & 0b1) != 0x00 {
-                return Err(I2cError::Nak);
+                return Err(FtHalError::HAL(I2cNoAck));
             }
         }
 
@@ -576,7 +580,7 @@ impl<'a, Device: MpsseCmdExecutor> I2c<'a, Device>
         let mut ack_buf: [u8; 1] = [0; 1];
         inner.ft.recv(&mut ack_buf)?;
         if (ack_buf[0] & 0b1) != 0x00 {
-            return Err(I2cError::Nak);
+            return Err(FtHalError::HAL(I2cNoAck));
         }
 
         let mut mpsse_cmd: MpsseCmdBuilder = MpsseCmdBuilder::new();
@@ -622,10 +626,11 @@ impl<'a, Device: MpsseCmdExecutor> I2c<'a, Device>
 }
 
 impl<'a, Device: MpsseCmdExecutor> embedded_hal::blocking::i2c::Read for I2c<'a, Device>
+    where FtHalError: From<<Device as MpsseCmdExecutor>::Error>,
 {
-    type Error = I2cError;
+    type Error = FtHalError;
 
-    fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
+    fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<()> {
         if self.fast {
             self.read_fast(address, buffer)
         } else {
@@ -635,10 +640,11 @@ impl<'a, Device: MpsseCmdExecutor> embedded_hal::blocking::i2c::Read for I2c<'a,
 }
 
 impl<'a, Device: MpsseCmdExecutor> embedded_hal::blocking::i2c::Write for I2c<'a, Device>
+    where FtHalError: From<<Device as MpsseCmdExecutor>::Error>,
 {
-    type Error = I2cError;
+    type Error = FtHalError;
 
-    fn write(&mut self, addr: u8, bytes: &[u8]) -> Result<(), Self::Error> {
+    fn write(&mut self, addr: u8, bytes: &[u8]) -> Result<()> {
         if self.fast {
             self.write_fast(addr, bytes)
         } else {
@@ -648,15 +654,16 @@ impl<'a, Device: MpsseCmdExecutor> embedded_hal::blocking::i2c::Write for I2c<'a
 }
 
 impl<'a, Device: MpsseCmdExecutor> embedded_hal::blocking::i2c::WriteRead for I2c<'a, Device>
+    where FtHalError: From<<Device as MpsseCmdExecutor>::Error>,
 {
-    type Error = I2cError;
+    type Error = FtHalError;
 
     fn write_read(
         &mut self,
         address: u8,
         bytes: &[u8],
         buffer: &mut [u8],
-    ) -> Result<(), Self::Error> {
+    ) -> Result<()> {
         if self.fast {
             self.write_read_fast(address, bytes, buffer)
         } else {

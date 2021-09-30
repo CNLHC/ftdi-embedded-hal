@@ -1,6 +1,8 @@
 use crate::{FtInner, PinUse};
 use ftdi_mpsse::{MpsseCmdBuilder, MpsseCmdExecutor};
 use std::{cell::RefCell, sync::Mutex};
+use crate::error::FtHalError;
+use crate::error::Result;
 
 /// FTDI output pin.
 ///
@@ -10,6 +12,7 @@ use std::{cell::RefCell, sync::Mutex};
 /// [`FtHal::ad7`]: crate::FtHal::ad7
 #[derive(Debug)]
 pub struct OutputPin<'a, Device: MpsseCmdExecutor>
+    where FtHalError: From<<Device as MpsseCmdExecutor>::Error>,
 {
     /// Parent FTDI device.
     mtx: &'a Mutex<RefCell<FtInner<Device>>>,
@@ -18,6 +21,7 @@ pub struct OutputPin<'a, Device: MpsseCmdExecutor>
 }
 
 impl<'a, Device: MpsseCmdExecutor> OutputPin<'a, Device>
+    where FtHalError: From<<Device as MpsseCmdExecutor>::Error>,
 {
     pub(crate) fn new(mtx: &'a Mutex<RefCell<FtInner<Device>>>, idx: u8) -> OutputPin<'a, Device> {
         let lock = mtx.lock().expect("Failed to aquire FTDI mutex");
@@ -26,7 +30,7 @@ impl<'a, Device: MpsseCmdExecutor> OutputPin<'a, Device>
         OutputPin { mtx, idx }
     }
 
-    pub(crate) fn set(&self, state: bool) -> Result<(), TimeoutError> {
+    pub(crate) fn set(&self, state: bool) -> Result<()> {
         let lock = self.mtx.lock().expect("Failed to aquire FTDI mutex");
         let mut inner = lock.borrow_mut();
 
@@ -39,11 +43,14 @@ impl<'a, Device: MpsseCmdExecutor> OutputPin<'a, Device>
         let cmd: MpsseCmdBuilder = MpsseCmdBuilder::new()
             .set_gpio_lower(inner.value, inner.direction)
             .send_immediate();
-        inner.ft.send(cmd.as_slice())
+        inner.ft.send(cmd.as_slice())?;
+
+        Ok(())
     }
 }
 
 impl<'a, Device: MpsseCmdExecutor> OutputPin<'a, Device>
+    where FtHalError: From<<Device as MpsseCmdExecutor>::Error>,
 {
     /// Convert the GPIO pin index to a pin mask
     pub(crate) fn mask(&self) -> u8 {
@@ -52,14 +59,15 @@ impl<'a, Device: MpsseCmdExecutor> OutputPin<'a, Device>
 }
 
 impl<'a, Device: MpsseCmdExecutor> embedded_hal::digital::v2::OutputPin for OutputPin<'a, Device>
+    where FtHalError: From<<Device as MpsseCmdExecutor>::Error>,
 {
-    type Error = TimeoutError;
+    type Error = FtHalError;
 
-    fn set_low(&mut self) -> Result<(), Self::Error> {
+    fn set_low(&mut self) -> Result<()> {
         self.set(false)
     }
 
-    fn set_high(&mut self) -> Result<(), Self::Error> {
+    fn set_high(&mut self) -> Result<()> {
         self.set(true)
     }
 }
