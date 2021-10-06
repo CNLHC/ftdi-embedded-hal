@@ -1,16 +1,11 @@
-use ftdi;
-use libftd2xx;
 use std::fmt;
 use std::io;
 
-pub type Result<T> = std::result::Result<T, FtHalError>;
-
 #[derive(Debug)]
-pub enum FtHalError {
+pub enum Error<E: std::error::Error> {
     HAL(ErrorKind),
     Io(io::Error),
-    FTDI(ftdi::Error),
-    FTD2XX(libftd2xx::TimeoutError),
+    Backend(E),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -38,31 +33,32 @@ impl ErrorKind {
     }
 }
 
-impl fmt::Display for FtHalError {
+impl<E: std::error::Error> fmt::Display for Error<E> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            FtHalError::Io(ref err) => err.fmt(f),
-            FtHalError::FTDI(ref err) => err.fmt(f),
-            FtHalError::FTD2XX(ref err) => err.fmt(f),
-            FtHalError::HAL(ref err) => write!(f, "A regular error occurred {:?}", err.as_str()),
+        match self {
+            Error::Io(e) => e.fmt(f),
+            Error::Backend(e) => fmt::Display::fmt(&e, f),
+            Error::HAL(e) => write!(f, "A regular error occurred {:?}", e.as_str()),
         }
     }
 }
 
-impl From<io::Error> for FtHalError {
+impl<E: std::error::Error> From<io::Error> for Error<E> {
     fn from(e: io::Error) -> Self {
-        FtHalError::Io(e)
+        Error::Io(e)
     }
 }
 
-impl From<ftdi::Error> for FtHalError {
+#[cfg(feature = "ftdi")]
+impl From<ftdi::Error> for Error<ftdi::Error> {
     fn from(e: ftdi::Error) -> Self {
-        FtHalError::FTDI(e)
+        Error::Backend(e)
     }
 }
 
-impl From<libftd2xx::TimeoutError> for FtHalError{
+#[cfg(feature = "libftd2xx")]
+impl From<libftd2xx::TimeoutError> for Error<libftd2xx::TimeoutError> {
     fn from(e: libftd2xx::TimeoutError) -> Self {
-        FtHalError::FTD2XX(e)
+        Error::Backend(e)
     }
 }
