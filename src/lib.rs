@@ -76,7 +76,6 @@
 //! [setup executable]: https://www.ftdichip.com/Drivers/CDM/CDM21228_Setup.zip
 #![doc(html_root_url = "https://docs.rs/ftdi-embedded-hal/0.9.1")]
 #![forbid(missing_docs)]
-#![forbid(unsafe_code)]
 
 pub use embedded_hal;
 pub use libftd2xx;
@@ -192,6 +191,8 @@ pub struct FtHal<Device: FtdiCommon, INITIALIZED> {
     init: INITIALIZED,
     mtx: Mutex<RefCell<FtInner<Device>>>,
 }
+unsafe impl Send for FtHal<Ft4232h, Initialized> {}
+unsafe impl Sync for FtHal<Ft4232h, Initialized> {}
 
 impl<Device: FtdiCommon + TryFrom<Ftdi, Error = DeviceTypeError> + FtdiMpsse>
     FtHal<Device, Uninitialized>
